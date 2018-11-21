@@ -1,0 +1,10 @@
+{
+	"styleguide": {
+		"sections": [
+			{"reference": "atoms"
+			, "markup": "<h1> First Section</h1>"}
+			,{"reference": "atoms"
+			, "markup": "<h1> another Section</h1>"}
+		]
+	}
+}
