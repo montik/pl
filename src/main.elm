@@ -1,8 +1,10 @@
 import Browser
 import Html exposing (Html, text, pre, div)
+import Html.Attributes
 import Http
-import Json.Decode exposing (Decoder, field, string, list, map, map2)
-import List exposing(foldr, map)
+import Json.Decode exposing (Decoder, field, string, list, map, map2, null, oneOf)
+import List exposing(foldr, map, concatMap)
+import Html.Parser
 
 
 
@@ -39,7 +41,7 @@ init : () -> (Model, Cmd Msg)
 init _ =
   ( Loading
   , Http.get
-      { url = "/styleguide_test.json"
+      { url = "/styleguide.json"
       , expect = Http.expectJson GotText decodeStyleguideJson
       }
   )
@@ -67,15 +69,16 @@ update msg model =
 
 -- DECODER
 
+stringOrNull: Decoder String
+stringOrNull = oneOf [ string, null "" ]
+
 decodeStyleguideJson : Decoder Sections
 decodeStyleguideJson =
-  field "styleguide" (
-    field "sections" (
-      list (
-        map2 Section
-          (field "reference" string)
-          (field "markup" string)
-      )
+  field "sections" (
+    list (
+      map2 Section
+        (field "reference" string)
+        (field "markup" stringOrNull)
     )
   )
 
@@ -99,13 +102,29 @@ httpError error =
           Http.NetworkError -> "NetworkError"
           Http.Timeout -> "Timeout"
 
-viewSection: Section -> Html Msg
-viewSection section =
-  text section.reference
 
-viewSections: Sections -> Html Msg
-viewSections sections =
-  div [] (map viewSection sections)
+parseMarkup: String -> List Html.Parser.Node
+parseMarkup markup =
+  case Html.Parser.run markup of
+      Result.Ok nodes -> nodes
+      Result.Err err -> []
+
+createHtml: Html.Parser.Node -> Html msg
+createHtml node =
+  case node of
+    Html.Parser.Element name attributes children ->
+      let convertAttributes = (\ a -> Html.Attributes.attribute (Tuple.first a) (Tuple.second a) ) in
+        Html.node name (map convertAttributes attributes) (map createHtml children)
+    Html.Parser.Text content ->
+      text content
+    _ ->
+      text ""
+
+viewSection: Section -> List (Html Msg)
+viewSection section =
+  let m = parseMarkup section.markup in
+    List.map createHtml m
+
 
 view : Model -> Html Msg
 view model =
@@ -117,4 +136,4 @@ view model =
       text "Loading..."
 
     Success sections ->
-      viewSections sections
+      div [] (concatMap viewSection sections)

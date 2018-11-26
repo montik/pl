@@ -24,7 +24,7 @@ main =
 
 
 type Model
-  = Failure
+  = Failure Http.Error
   | Loading
   | Success String
 
@@ -54,8 +54,8 @@ update msg model =
         Ok url ->
           (Success url, Cmd.none)
 
-        Err _ ->
-          (Failure, Cmd.none)
+        Err error ->
+          (Failure error, Cmd.none)
 
 
 
@@ -82,11 +82,13 @@ view model =
 viewGif : Model -> Html Msg
 viewGif model =
   case model of
-    Failure ->
-      div []
-        [ text "I could not load a random cat for some reason. "
-        , button [ onClick MorePlease ] [ text "Try Again!" ]
-        ]
+    Failure error ->
+      case error of
+        Http.BadBody reason -> text reason
+        Http.BadStatus code -> text (String.fromInt code)
+        Http.BadUrl reason -> text reason
+        Http.NetworkError -> text "NetworkError"
+        Http.Timeout -> text "Timeout"
 
     Loading ->
       text "Loading..."
@@ -112,4 +114,4 @@ getRandomCatGif =
 
 gifDecoder : Decoder String
 gifDecoder =
-  field "data" (field "image_url" string)
+  field "data" (field "not_existent" string)
