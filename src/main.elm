@@ -1,23 +1,27 @@
 module Main exposing (..)
 
 import Browser
+import Browser.Navigation as Nav
 import Html exposing (Html, text, pre, div)
 import Html.Attributes exposing (class)
 import Http
 import Json.Decode exposing (Decoder, field, string, list, map, map2, null, oneOf)
 import List exposing(any, foldr, map, concatMap, member)
 import Html.Parser
+import Url
 
 
 
 -- MAIN
 
 main =
-  Browser.element
+  Browser.application
     { init = init
+    , view = view
     , update = update
     , subscriptions = subscriptions
-    , view = view
+    , onUrlChange = UrlChanged
+    , onUrlRequest = LinkClicked
     }
 
 
@@ -37,10 +41,6 @@ childrenOf father =
   case father.children of
     Children children -> children
 
-appendChild: Node a -> Node a -> Node a
-appendChild child father =
-      {father | children = Children(child :: (childrenOf father))}
-
 findChild: String -> Children a -> Maybe (Node a)
 findChild id (Children children) =
   case children of
@@ -50,19 +50,43 @@ findChild id (Children children) =
       if (x.id == id) then (Just x)
       else findChild id (Children xs)
 
-insertChild1: a -> (List String) -> Node a -> Node a
-insertChild1 node path root =
+findNode: List String -> Node a -> Maybe ( Node a )
+findNode path root =
   case path of
+    [] ->
+      Just root
+    id :: ids ->
+      case (findChild id root.children) of
+        Nothing ->
+          Nothing
+        Just node ->
+          findNode ids node
+
+-- TODO test if a faster solution makes sense
+insertChild: a -> (List String) -> Node a -> Node a
+insertChild node currentPath root =
+  case currentPath of
     [] ->
       {root | data = Just node}
     id :: ids ->
-      let c = findChild id root.children in
-        case c of
+      let
+        child = findChild id root.children
+      in
+        case child of
           Nothing ->
-            let fakeChild = Node id path (Children []) Nothing in
-            appendChild (insertChild1 node ids fakeChild) root
-          Just x ->
-            insertChild1 node ids x
+            let
+              path = root.path ++ [ id ]
+              fakeChild = Node id path (Children []) Nothing
+              children = childrenOf root
+              newChild = insertChild node ids fakeChild
+            in
+              {root | children = Children ( newChild :: children )}
+          Just existingChild  ->
+            let
+              newChild = insertChild node ids existingChild
+              children = List.map (\n -> if (n.id == newChild.id) then newChild else n) (childrenOf root)
+            in
+              {root | children = Children ( children )}
 
 
 -- RENDER NODE
@@ -77,7 +101,9 @@ createHtml: Html.Parser.Node -> Html msg
 createHtml node =
   case node of
     Html.Parser.Element name attributes childNodes ->
-      let convertAttributes = (\ a -> Html.Attributes.attribute (Tuple.first a) (Tuple.second a) ) in
+      let
+        convertAttributes = (\ a -> Html.Attributes.attribute (Tuple.first a) (Tuple.second a) )
+      in
         Html.node name (map convertAttributes attributes) (map createHtml childNodes)
     Html.Parser.Text content ->
       text content
@@ -94,12 +120,11 @@ renderNode: Node Section -> List (Html msg)
 renderNode node =
   let
     children = childrenOf node
-    depth = List.length node.path
     markup = markupOf node
   in
     [ div [class (String.join "." node.path)]
-      (List.map createHtml (parseMarkup markup)
-       ++ (List.concatMap renderNode children))
+      ( List.map createHtml (parseMarkup markup) ++
+        (List.concatMap renderNode children))
     ]
 
 
@@ -108,7 +133,7 @@ insertSection section root =
   let
     path = String.split "." section.reference
   in
-    insertChild1 section path root
+    insertChild section path root
 
 createTree: Sections -> Node Section
 createTree sections =
@@ -122,9 +147,25 @@ createTree sections =
 -- MODEL
 
 type Model
-  = Failure Http.Error
+  = Failure
+    { error: Http.Error
+    , url: Url
+    }
+
   | Loading
-  | Success Root
+    { url: Url
+    }
+
+  | Success
+    { sectionsTree: Root
+    , url: Url
+    }
+
+
+type alias Url =
+    { key : Nav.Key
+    , url : Url.Url
+    }
 
 type alias Section =
   { reference : String
@@ -135,9 +176,9 @@ type alias Root = Node Section
 type alias Sections = List Section
 
 
-init : () -> (Model, Cmd Msg)
-init _ =
-  ( Loading
+init : () -> Url.Url -> Nav.Key -> (Model, Cmd Msg)
+init flags url key =
+  ( Loading url key
   , Http.get
       { url = "/styleguide.json"
       , expect = Http.expectJson GotText decodeStyleguideJson
@@ -165,6 +206,8 @@ decodeStyleguideJson =
 
 type Msg
   = GotText (Result Http.Error Sections)
+  | LinkClicked Browser.UrlRequest
+  | UrlChanged Url.Url
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -172,9 +215,22 @@ update msg model =
     GotText result ->
       case result of
         Ok sections ->
-            (Success (createTree sections), Cmd.none)
+            (Success (createTree sections) model.url model.key, Cmd.none)
         Err error  ->
-          (Failure error, Cmd.none)
+          (Failure error model.url model.key, Cmd.none)
+
+    LinkClicked urlRequest ->
+      case urlRequest of
+        Browser.Internal url ->
+          ( model, Nav.pushUrl model.key (Url.toString url) )
+
+        Browser.External href ->
+          ( model, Nav.load href )
+
+    UrlChanged url ->
+      ( { model | url = url }
+      , Cmd.none
+      )
 
 
 -- SUBSCRIPTIONS
@@ -195,20 +251,19 @@ httpError error =
     Http.NetworkError -> "NetworkError"
     Http.Timeout -> "Timeout"
 
-viewSection: Section -> List (Html Msg)
-viewSection section =
-  let m = parseMarkup section.markup in
-    List.map createHtml m
-
-
-view : Model -> Html Msg
+view: Model -> Browser.Document Msg
 view model =
-  case model of
-    Failure error ->
-      text (httpError error)
+  { title = "Title"
+  , body =
+    [ case model of
+        Failure error url ->
+          text (httpError error)
 
-    Loading ->
-      text "Loading..."
+        Loading url ->
+          text "Loading..." ++ url
 
-    Success sectionsTree ->
-      div [class "container"] (renderNode sectionsTree)
+        Success sectionsTree url ->
+          text url
+          --div [class "container"] (renderNode sectionsTree)
+    ]
+  }

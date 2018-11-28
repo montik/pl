@@ -36,6 +36,9 @@ suite =
             ]
         ]
 
+treeDimension: Node a -> Int
+treeDimension root =
+  1 + List.sum (List.map treeDimension (childrenOf root))
 
 createTreeTest: Test
 createTreeTest =
@@ -43,30 +46,34 @@ createTreeTest =
     sections =
       [ Section "atom" "<h1>atom</h1>"
       , Section "atom.icon" "<h2>atom icon</h2>"
-      , Section "button" "<h2>button</h2>"
+      , Section "atom.form" "<h2>atom icon</h2>"
+      , Section "atom.button" "<h2>button</h2>"
+      , Section "molecule" "<h2>button</h2>"
+      , Section "molecule.teaser" "<h2>button</h2>"
+      , Section "molecule.teaser.solid" "<h2>button</h2>"
       ]
+    tree = createTree sections
   in
     describe "Correctely create a tree from a list of sections"
-    [ describe "Insert the right number of child"
-      [ test "two expected" <|
+    [ test "The root has no id" <|
+      \_ -> Expect.equal "" tree.id
+
+    , describe "Insert the right number of child"
+      [ test "The root element should have as many children as main sections" <|
+        let
+          isMainSection = \s -> (List.length (String.split "." s.reference)) == 1
+          numberOfMainSections = (List.length (List.filter isMainSection sections))
+        in
+          \_ ->
+            Expect.equal numberOfMainSections (List.length (childrenOf tree))
+      , test "The size of the tree equals the number of input sections plus the added root" <|
         \_ ->
-          let
-            tree = createTree sections
-          in
-            Expect.equal (List.length (childrenOf tree)) 2
-      , test "three expected" <|
-        \_ ->
-          let
-            moreSections =
-              sections ++ [ Section "form" "<h1>form</h1>" ]
-            tree = createTree moreSections
-          in
-            Expect.equal (List.length (childrenOf tree)) 3
+          Expect.equal (1 + List.length sections) (treeDimension tree)
       ]
     ]
 
-renderNodeTest: Test
-renderNodeTest =
+findNodeTest: Test
+findNodeTest =
   let
     dummySection = Section "dummy" "<h2>dummy</h2>"
     atoms =
@@ -78,7 +85,7 @@ renderNodeTest =
       ])
       Nothing
     molecules =
-      Node "atom" []
+      Node "molecules" []
       (Children
         [ Node "icon" [] (Children []) (Just dummySection)
         , Node "button" [] (Children []) (Just dummySection)
@@ -86,4 +93,24 @@ renderNodeTest =
       ])
       Nothing
     tree = Node "" [] (Children [atoms, molecules]) Nothing
-    markup = renderNode tree
+    atomIcon = findNode ["atom", "icon"] tree
+  in
+    describe "Correctely find the node"
+    [ test "atom.icon" <|
+      \_ ->
+        case atomIcon of
+          Just sec ->
+            Expect.equal sec.id "icon"
+          Nothing ->
+            Expect.fail "No node found"
+    , test "atom has the right number of children" <|
+      \_ ->
+        let
+          atom = findNode ["atom"] tree
+        in
+          case atom of
+            Just a ->
+              Expect.equal (List.length (childrenOf a)) 3
+            Nothing ->
+              Expect.fail "No node found"
+    ]
