@@ -146,26 +146,20 @@ createTree sections =
 
 -- MODEL
 
-type Model
-  = Failure
-    { error: Http.Error
-    , url: Url
-    }
+type alias Model =
+  { global : Global
+  , model : ModelData
+  }
 
+type alias Global =
+  { key : Nav.Key
+  , url : Url.Url
+  }
+
+type ModelData
+  = Failure Http.Error
   | Loading
-    { url: Url
-    }
-
-  | Success
-    { sectionsTree: Root
-    , url: Url
-    }
-
-
-type alias Url =
-    { key : Nav.Key
-    , url : Url.Url
-    }
+  | Success Root
 
 type alias Section =
   { reference : String
@@ -178,9 +172,14 @@ type alias Sections = List Section
 
 init : () -> Url.Url -> Nav.Key -> (Model, Cmd Msg)
 init flags url key =
-  ( Loading url key
+  ( Model
+    ( { url = url
+      , key = key
+      }
+    )
+    Loading
   , Http.get
-      { url = "/styleguide.json"
+      { url = "/dist/styleguide.json"
       , expect = Http.expectJson GotText decodeStyleguideJson
       }
   )
@@ -215,22 +214,31 @@ update msg model =
     GotText result ->
       case result of
         Ok sections ->
-            (Success (createTree sections) model.url model.key, Cmd.none)
+            ( Model model.global ( Success (createTree sections) )
+            , Cmd.none
+            )
         Err error  ->
-          (Failure error model.url model.key, Cmd.none)
+          ( Model model.global (Failure error)
+            , Cmd.none
+          )
 
     LinkClicked urlRequest ->
       case urlRequest of
         Browser.Internal url ->
-          ( model, Nav.pushUrl model.key (Url.toString url) )
+          ( model, Nav.pushUrl model.global.key (Url.toString url) )
 
         Browser.External href ->
           ( model, Nav.load href )
 
     UrlChanged url ->
-      ( { model | url = url }
-      , Cmd.none
-      )
+      let
+        global = model.global
+        g = { global | url = url }
+
+      in
+        ( { model | global = g }
+        , Cmd.none
+        )
 
 
 -- SUBSCRIPTIONS
@@ -241,6 +249,14 @@ subscriptions model =
 
 
 -- VIEW
+
+currentSection: String
+currentSection =
+  case Url.Parser.string of
+    Nothing ->
+      ""
+    Just s ->
+      s
 
 httpError: Http.Error -> String
 httpError error =
@@ -255,15 +271,15 @@ view: Model -> Browser.Document Msg
 view model =
   { title = "Title"
   , body =
-    [ case model of
-        Failure error url ->
+    [ case model.model of
+        Failure error ->
           text (httpError error)
 
-        Loading url ->
-          text "Loading..." ++ url
+        Loading ->
+          text ("Loading..." ++ ( Url.toString model.global.url ) )
 
-        Success sectionsTree url ->
-          text url
+        Success _ ->
+          text (currentSection)
           --div [class "container"] (renderNode sectionsTree)
     ]
   }
