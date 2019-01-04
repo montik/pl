@@ -2,13 +2,14 @@ module Main exposing (..)
 
 import Browser
 import Browser.Navigation as Nav
-import Html exposing (Html, text, pre, div)
-import Html.Attributes exposing (class)
+import Html exposing (Html, text, pre, div, a, ul, main_, article, header, h3, h4, section)
+import Html.Attributes exposing (class, href)
 import Http
-import Json.Decode exposing (Decoder, field, string, list, map, map2, null, oneOf)
+import Json.Decode exposing (Decoder, field, string, list, map, map4, null, oneOf)
 import List exposing(any, foldr, map, concatMap, member)
 import Html.Parser
 import Url
+import Url.Parser exposing (Parser, (</>))
 
 
 
@@ -116,17 +117,55 @@ markupOf node =
     Nothing -> ""
     Just section -> section.markup
 
+headerOf: Node Section -> String
+headerOf node =
+  case node.data of
+    Nothing -> ""
+    Just section -> section.header
+
+descriptionOf: Node Section -> String
+descriptionOf node =
+  case node.data of
+    Nothing -> ""
+    Just section -> section.description
+
+urlOf: Node Section -> String
+urlOf node =
+  "/section/" ++ (String.join "." node.path)
+
+
 renderNode: Node Section -> List (Html msg)
 renderNode node =
   let
     children = childrenOf node
+    headline = header [] [ h3 [] [ a [ href (urlOf node) ]  [ text ( headerOf node ) ] ] ]
+    description =
+      section [class "element__description"]
+        [ h4 [ class "visuallyhidden" ] [ text "Element description" ]
+        , text (descriptionOf node)
+        ]
     markup = markupOf node
+    nodeMarkup =
+      if markup /= ""
+        then
+          [ section [class "element__markup"]
+            [ h4 [ class "visuallyhidden" ] [ text "Element markup" ]
+            , shadowDom [] ( List.map createHtml (parseMarkup markup) )
+            ]
+          ]
+        else []
   in
-    [ div [class (String.join "." node.path)]
-      ( List.map createHtml (parseMarkup markup) ++
-        (List.concatMap renderNode children))
+    [ article [class (String.join "." node.path), class "element" ]
+      ( [ headline ]
+      ++ [ description ]
+      ++ nodeMarkup
+      ++ ( List.concatMap renderNode children )
+      )
     ]
 
+shadowDom: List (Html.Attribute msg) -> List (Html msg) -> Html msg
+shadowDom attributes children =
+  Html.node "shadow-dom" attributes children
 
 insertSection: Section -> Node Section -> Node Section
 insertSection section root =
@@ -141,7 +180,6 @@ createTree sections =
     root = Node "" [] (Children []) Nothing
   in
     List.foldl insertSection root sections
-
 
 
 -- MODEL
@@ -162,13 +200,18 @@ type ModelData
   | Success Root
 
 type alias Section =
-  { reference : String
+  { header : String
+  , description : String
+  , reference : String
   , markup : String
   }
 
 type alias Root = Node Section
 type alias Sections = List Section
 
+type Route
+  = RSection String
+  | NotFound
 
 init : () -> Url.Url -> Nav.Key -> (Model, Cmd Msg)
 init flags url key =
@@ -179,7 +222,7 @@ init flags url key =
     )
     Loading
   , Http.get
-      { url = "/dist/styleguide.json"
+      { url = "/styleguide.json"
       , expect = Http.expectJson GotText decodeStyleguideJson
       }
   )
@@ -194,7 +237,9 @@ decodeStyleguideJson : Decoder Sections
 decodeStyleguideJson =
   field "sections" (
     list (
-      map2 Section
+      map4 Section
+        (field "header" stringOrNull)
+        (field "description" stringOrNull)
         (field "reference" string)
         (field "markup" stringOrNull)
     )
@@ -247,16 +292,18 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.none
 
+-- ROUTE
+
+routeParser : Parser (Route -> a) a
+routeParser =
+  Url.Parser.map RSection (Url.Parser.s "section" </> Url.Parser.string)
+
+fromUrl : Url.Url -> Route
+fromUrl url =
+  Maybe.withDefault NotFound (Url.Parser.parse routeParser url)
+
 
 -- VIEW
-
-currentSection: String
-currentSection =
-  case Url.Parser.string of
-    Nothing ->
-      ""
-    Just s ->
-      s
 
 httpError: Http.Error -> String
 httpError error =
@@ -266,6 +313,17 @@ httpError error =
     Http.BadUrl reason -> reason
     Http.NetworkError -> "NetworkError"
     Http.Timeout -> "Timeout"
+
+vNavigation: Node Section -> Node Section -> List ( Html Msg )
+vNavigation root currentNode =
+  [ ul [] [] ]
+
+vPage: Node Section -> Node Section -> Html Msg
+vPage root currentNode=
+  div [class "container"]
+    ( ( vNavigation root currentNode ) ++
+      [ main_ [ class "mn-container" ] ( renderNode currentNode ) ]
+    )
 
 view: Model -> Browser.Document Msg
 view model =
@@ -278,8 +336,38 @@ view model =
         Loading ->
           text ("Loading..." ++ ( Url.toString model.global.url ) )
 
-        Success _ ->
-          text (currentSection)
+        Success root ->
+          let
+            route = fromUrl model.global.url
+          in
+            case route of
+              NotFound ->
+                div []
+                [ text ("Route Not found")
+                , a [href "/section/atom/"] [text "atoms"]
+                ]
+              RSection section ->
+                let
+                  s = String.split "." section
+                  currentNode = findNode s root
+                in
+                  case currentNode of
+                    Just n ->
+                      vPage root n
+                    Nothing ->
+                      text ("node " ++ section ++ " not found")
           --div [class "container"] (renderNode sectionsTree)
     ]
   }
+
+{-
+TODO
+
+* Find a non conflicting name for section and Route Section, or put them in
+different files
+
+* Solve naming conflicts between Url.Parser and Html.Parser
+
+* store html markup in memory, so that it is not recomputed on every page change
+
+-}
