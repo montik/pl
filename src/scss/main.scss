@@ -1,12 +1,29 @@
 /*
+test
+
+Have fun
+
+markup:
+<h1>Have fun</h1>
+
+Styleguide 1.1
 */
 
-.element {
-	margin: 2rem auto;
-	max-width: 768px;
+:root {
+	--element-markup-bg: hsl(0, 0%, 96.5%);
+}
 
-	&__markup {
-		position: relative;
+.pl {
+	&-element {
+		margin: 2rem auto;
+		max-width: 768px;
+
+		&__markup {
+			background-color: var(--element-markup-bg);
+			margin: 1rem 0;
+			padding: 1rem;
+			position: relative;
+		}
 	}
 }
 

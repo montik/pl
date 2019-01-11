@@ -140,7 +140,7 @@ renderNode node =
     children = childrenOf node
     headline = header [] [ h3 [] [ a [ href (urlOf node) ]  [ text ( headerOf node ) ] ] ]
     description =
-      section [class "element__description"]
+      section [class "pl-element__description"]
         [ h4 [ class "visuallyhidden" ] [ text "Element description" ]
         , text (descriptionOf node)
         ]
@@ -148,14 +148,14 @@ renderNode node =
     nodeMarkup =
       if markup /= ""
         then
-          [ section [class "element__markup"]
+          [ section [class "pl-element__markup"]
             [ h4 [ class "visuallyhidden" ] [ text "Element markup" ]
             , shadowDom [] ( List.map createHtml (parseMarkup markup) )
             ]
           ]
         else []
   in
-    [ article [class (String.join "." node.path), class "element" ]
+    [ article [class (String.join "." node.path), class "pl-element" ]
       ( [ headline ]
       ++ [ description ]
       ++ nodeMarkup
@@ -320,9 +320,9 @@ vNavigation root currentNode =
 
 vPage: Node Section -> Node Section -> Html Msg
 vPage root currentNode=
-  div [class "container"]
+  div [class "pl-container"]
     ( ( vNavigation root currentNode ) ++
-      [ main_ [ class "mn-container" ] ( renderNode currentNode ) ]
+      [ main_ [ class "pl-container__main" ] ( renderNode currentNode ) ]
     )
 
 view: Model -> Browser.Document Msg
